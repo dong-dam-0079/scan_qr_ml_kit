@@ -7,6 +7,7 @@ import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:scan_ml_text_kit/collect_registration/processing_page.dart';
 import 'package:scan_ml_text_kit/collect_registration/scan_camera_screen.dart';
+import 'package:scan_ml_text_kit/extension/string_ext.dart';
 import 'package:scan_ml_text_kit/main.dart';
 import 'package:scan_ml_text_kit/utils/consts.dart';
 import 'widgets/step_indicator.dart';
@@ -111,7 +112,7 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
   //Method to take a photo using the camera
   Future<void> _scanImage() async {
     try {
-      final Map<String, String> result = await Navigator.push(
+      final List<String> results = await Navigator.push(
         // ignore: use_build_context_synchronously
         context,
         MaterialPageRoute(
@@ -119,12 +120,34 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
         ),
       );
 
-      logger.e(
-          'dongds: ${result['Name']} ---  ${result['Address']} ---  ${result['DateOfBirth']} ---  ${result['LicenceNo']}');
-      firstNameController.text = result['Name'] ?? '';
-      addressController.text = result['Address'] ?? '';
-      dobController.text = result['DateOfBirth'] ?? '';
-      cardNumberController.text = result['LicenceNo'] ?? '';
+      final iLicenceNo = results.indexOf('LICENCE NO') + 1;
+      final iDoB = results.indexOf('DATE OF BIRTH') + 1;
+      int count = 0;
+      String address = '';
+      String name = results.firstWhere((e) {
+        if (e.isName() &&
+            !e.contains('LICENCE') &&
+            !e.contains('DRIVING') &&
+            !e.contains('AUSTRALIAN')) {
+          return true;
+        }
+        return false;
+      });
+
+      for (var result in results) {
+        if (result.isAddress()) {
+          count++;
+          address += '$result ';
+        }
+        if (count >= 2) {
+          break;
+        }
+      }
+
+      firstNameController.text = name;
+      addressController.text = address;
+      dobController.text = results[iDoB];
+      cardNumberController.text = results[iLicenceNo];
       setState(() {});
     } catch (e) {
       if (kDebugMode) {

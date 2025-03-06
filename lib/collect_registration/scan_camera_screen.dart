@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:scan_ml_text_kit/main.dart';
 
 class ScanCameraScreen extends StatefulWidget {
   const ScanCameraScreen({super.key});
@@ -45,7 +44,6 @@ class _ScanCameraScreenState extends State<ScanCameraScreen> {
       _cameraController?.startImageStream((image) async {
         if (!isBlocked) {
           isBlocked = true;
-          logger.e('dongds scan: ${image.format.raw}');
           await _takePictureAndScan();
         }
       });
@@ -77,39 +75,14 @@ class _ScanCameraScreenState extends State<ScanCameraScreen> {
     final RecognizedText recognizedText =
         await textRecognizer.processImage(inputImage);
 
-    final text = recognizedText.text.toUpperCase().split(RegExp(r'\r?\n'));
-    final blocks = recognizedText.blocks;
+    final rawText = recognizedText.text.toUpperCase();
 
-    String name = text[2];
-    String address = '${text[3]}\n${text[4]}';
-    String dob = "";
-    String licenceNo = "";
-
-    for (TextBlock block in blocks) {
-      final text = block.text.toUpperCase();
-
-      // Tìm ngày sinh (DATE OF BIRTH)
-      if (text.contains("DATE OF BIRTH")) {
-        dob = text.split("DATE OF BIRTH")[1].trim().split(" ")[0];
-      }
-
-      // Tìm số bằng lái (LICENCE NO)
-      if (text.contains("LICENCE NO")) {
-        licenceNo = text.split("LICENCE NO")[1].trim().split(" ")[0];
-      }
-    }
-
-    if (name.isNotEmpty &&
-        address.isNotEmpty &&
-        dob.isNotEmpty &&
-        licenceNo.isNotEmpty) {
+    if (rawText.contains('DRIVER LICENCE') &&
+        rawText.contains('LICENCE NO') &&
+        rawText.contains('DATE OF BIRTH')) {
       textRecognizer.close();
-      Navigator.pop(context, {
-        "Name": name,
-        "Address": address,
-        "DateOfBirth": dob,
-        "LicenceNo": licenceNo,
-      });
+      final textSplit = rawText.split(RegExp(r'\r?\n'));
+      Navigator.pop(context, textSplit);
     }
     isBlocked = false;
   }
