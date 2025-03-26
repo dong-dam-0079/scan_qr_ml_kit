@@ -1,16 +1,15 @@
 # scan_ml_text_kit
 
-A new Flutter project.
+### Environment
 
-## Getting Started
+- Flutter 3.24.1 • channel stable • https://github.com/flutter/flutter.git
+- Tools • Dart 3.5.1 • DevTools 2.20.1
 
-This project is a starting point for a Flutter application.
+### Android/iOS version
 
-A few resources to get you started if this is your first Flutter project:
+- Android
+    - compileSdkVersion: 34
+    - minSdkVersion 26
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- iOS:
+    - deployment info: iOS 12.0

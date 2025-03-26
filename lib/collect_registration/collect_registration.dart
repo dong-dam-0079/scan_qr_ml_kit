@@ -1,14 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart';
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:scan_ml_text_kit/collect_registration/processing_page.dart';
 import 'package:scan_ml_text_kit/collect_registration/scan_camera_screen.dart';
 import 'package:scan_ml_text_kit/extension/string_ext.dart';
 import 'package:scan_ml_text_kit/main.dart';
+import 'package:scan_ml_text_kit/model/scan_model.dart';
 import 'package:scan_ml_text_kit/utils/consts.dart';
 import 'widgets/step_indicator.dart';
 import 'widgets/section_title.dart';
@@ -20,7 +21,9 @@ import 'widgets/section_header.dart';
 import 'package:http/http.dart' as http;
 
 class CollectRegistration extends StatefulWidget {
-  const CollectRegistration({super.key});
+  const CollectRegistration({super.key, required this.email});
+
+  final String email;
 
   @override
   State<CollectRegistration> createState() => _CollectRegistrationScreenState();
@@ -52,12 +55,22 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
           await _imagePicker.pickImage(source: ImageSource.gallery);
       if (pickedFile != null) {
         _uploadedPhoto = File(pickedFile.path);
+        if (_uploadedPhoto != null) {
+          final model = await _detachTextFromFile(_uploadedPhoto!);
 
-        setState(() {});
+          setState(() {
+            firstNameController.text = model.firstName ?? '';
+            addressController.text = model.address ?? '';
+            dobController.text = model.dateOfBirth ?? '';
+            cardNumberController.text = model.licenseNumber ?? '';
+          });
+        }
+
+        await uploadFileDriver(_uploadedPhoto!.path, getPathProcess());
       }
-      await uploadFileDriver(_uploadedPhoto!.path, getPathProcess());
+      setState(() {});
     } catch (e) {
-      print('Error selecting photo: $e');
+      logger.e('Error selecting photo: $e');
     }
   }
 
@@ -89,70 +102,54 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
 
   //Method to take a photo using the camera
   Future<void> _takePhoto() async {
-    final cameras = await availableCameras();
-    CameraController controller =
-        CameraController(cameras.first, ResolutionPreset.high);
-    controller.initialize();
-
     try {
       final XFile? pickedFile = await pickAndCropImage();
       if (pickedFile != null) {
         _uploadedPhoto = File(pickedFile.path);
+        if (_uploadedPhoto != null) {
+          final model = await _detachTextFromFile(_uploadedPhoto!);
+
+          setState(() {
+            firstNameController.text = model.firstName ?? '';
+            addressController.text = model.address ?? '';
+            dobController.text = model.dateOfBirth ?? '';
+            cardNumberController.text = model.licenseNumber ?? '';
+          });
+        }
 
         await uploadFileDriver(_uploadedPhoto!.path, getPathProcess());
       }
       setState(() {});
     } catch (e) {
-      if (kDebugMode) {
-        print('Error capturing photo: $e');
-      }
+      logger.e('Error capturing photo: $e');
     }
   }
 
   //Method to take a photo using the camera
   Future<void> _scanImage() async {
     try {
-      final List<String> results = await Navigator.push(
-        // ignore: use_build_context_synchronously
+      final ScanModel results = await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => const ScanCameraScreen(),
+          builder: (context) => ScanCameraScreen(
+            type: selectedPhotoIDType!,
+          ),
         ),
       );
 
-      final iLicenceNo = results.indexOf('LICENCE NO') + 1;
-      final iDoB = results.indexOf('DATE OF BIRTH') + 1;
-      int count = 0;
-      String address = '';
-      String name = results.firstWhere((e) {
-        if (e.isName() &&
-            !e.contains('LICENCE') &&
-            !e.contains('DRIVING') &&
-            !e.contains('AUSTRALIAN')) {
-          return true;
-        }
-        return false;
+      setState(() {
+        _uploadedPhoto = File(results.filePath ?? '');
+        firstNameController.text = results.firstName ?? '';
+        addressController.text = results.address ?? '';
+        dobController.text = results.dateOfBirth ?? '';
+        cardNumberController.text = results.licenseNumber ?? '';
       });
 
-      for (var result in results) {
-        if (result.isAddress()) {
-          count++;
-          address += '$result ';
-        }
-        if (count >= 2) {
-          break;
-        }
+      if (results.filePath != null) {
+        await uploadFileDriver(_uploadedPhoto!.path, getPathProcess());
       }
-
-      firstNameController.text = name;
-      addressController.text = address;
-      dobController.text = results[iDoB];
-      cardNumberController.text = results[iLicenceNo];
-      setState(() {});
     } catch (e) {
-      if (kDebugMode) {
-        print('Error capturing photo: $e');
-      }
+      logger.e('Error capturing photo: $e');
     }
   }
 
@@ -181,6 +178,7 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
   Map<String, dynamic> getBody() {
     if (selectedPhotoIDType == "Driver's License") {
       return {
+        "email": widget.email,
         "first_name": firstNameController.text,
         "last_name": lastNameController.text,
         "address": addressController.text,
@@ -191,6 +189,7 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
       };
     } else if (selectedPhotoIDType == "Passport") {
       return {
+        "email": widget.email,
         "first_name": firstNameController.text,
         "last_name": lastNameController.text,
         "date_of_birth": dobController.text,
@@ -200,6 +199,7 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
       };
     } else if (selectedPhotoIDType == "National ID") {
       return {
+        "email": widget.email,
         "first_name": firstNameController.text,
         "last_name": lastNameController.text,
         "address": addressController.text,
@@ -253,11 +253,9 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
         ),
       );
 
-      await Future.delayed(const Duration(seconds: 2));
       // Tạo file từ đường dẫn
       var file = File(filePath);
 
-      // Kiểm tra file có tồn tại không
       if (!await file.exists()) {
         logger.e('File không tồn tại.');
         return;
@@ -272,6 +270,7 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
       var response = await request.send();
 
       // Đọc phần hồi
+      if (!mounted) return;
       Navigator.pop(context);
 
       // Kiểm tra phản hồi
@@ -290,11 +289,85 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
 
         setState(() {});
       } else {
-        print('Lỗi khi tải lên: ${response.statusCode}');
+        logger.e('Lỗi khi tải lên: ${response.statusCode}');
       }
     } catch (e) {
-      print('Đã xảy ra lỗi: $e');
+      logger.e('Đã xảy ra lỗi: $e');
+      if (!mounted) return;
+      Navigator.pop(context);
     }
+  }
+
+  Future<ScanModel> _detachTextFromFile(File imageFile) async {
+    final inputImage = InputImage.fromFile(imageFile);
+    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    final RecognizedText recognizedText =
+        await textRecognizer.processImage(inputImage);
+    final ScanModel model = ScanModel();
+
+    final rawText = recognizedText.text.toUpperCase();
+
+    if ((rawText.contains('DRIVER LICENCE') ||
+            rawText.contains('PASSPORT') ||
+            rawText.contains('NATIONAL')) &&
+        rawText.contains('LICENCE NO') &&
+        rawText.contains('DATE OF BIRTH')) {
+      final textSplit = rawText.split(RegExp(r'\r?\n'));
+
+      model.filePath = imageFile.path;
+      return await _detachDataLocal(model, textSplit);
+    }
+    return model;
+  }
+
+  Future<ScanModel> _detachDataLocal(
+    ScanModel model,
+    List<String> textSplit,
+  ) async {
+    final iLicenceNo = textSplit.indexOf('LICENCE NO') + 1;
+    final iDoB = textSplit.indexOf('DATE OF BIRTH') + 1;
+    int count = 0;
+    String address = '';
+    String name = textSplit.firstWhere((e) {
+      if (e.isName() &&
+          !e.contains('LICENCE') &&
+          !e.contains('PASSPORT') &&
+          !e.contains('NATIONAL') &&
+          !e.contains('DRIVING') &&
+          !e.contains('AUSTRALIAN')) {
+        return true;
+      }
+      return false;
+    });
+    for (var result in textSplit) {
+      if (result.isAddress()) {
+        count++;
+        address += '$result ';
+      }
+      if (count >= 2) {
+        break;
+      }
+    }
+
+    final licenseNo = textSplit[iLicenceNo];
+    final dob = textSplit[iDoB];
+
+    model.firstName = name;
+    model.address = address;
+
+    if (dob.isDate()) {
+      model.dateOfBirth = dob;
+    } else {
+      model.dateOfBirth = textSplit.firstWhereOrNull((e) => e.isDate()) ?? '';
+    }
+
+    if (int.tryParse(licenseNo) != null) {
+      model.licenseNumber = licenseNo;
+    } else {
+      model.licenseNumber =
+          textSplit.firstWhereOrNull((e) => e.isNumber()) ?? '';
+    }
+    return model;
   }
 
   void _deletePhoto() {
@@ -302,7 +375,7 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
     setState(() {
       _uploadedPhoto = null;
     });
-    print("Photo deleted");
+    logger.e("Photo deleted");
   }
 
   @override
@@ -335,13 +408,15 @@ class _CollectRegistrationScreenState extends State<CollectRegistration> {
                     const SizedBox(height: 16),
                     DropdownField(
                       hint: 'Please select a type of Photo ID',
-                      items: ['Passport', 'Driver\'s License', 'National ID'],
-                      value:
-                          selectedPhotoIDType, // Pass the current state value
+                      items: const [
+                        'Passport',
+                        'Driver\'s License',
+                        'National ID'
+                      ],
+                      value: selectedPhotoIDType,
                       onChanged: (value) {
                         setState(() {
-                          selectedPhotoIDType =
-                              value; // Update state on selection
+                          selectedPhotoIDType = value;
                         });
                       },
                     ),
